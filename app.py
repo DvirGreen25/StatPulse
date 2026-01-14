@@ -4,29 +4,29 @@ import os
 
 # --- Page Config ---
 st.set_page_config(
-    page_title="StatPulse Elite",
+    page_title="StatPulse Pro",
     page_icon="🏀",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
 
+# --- CSS Hacks for Cleaner Look ---
+st.markdown("""
+<style>
+    [data-testid="stSidebar"] {display: none;} /* Hide Sidebar Completely */
+    .stMetric {background-color: #f0f2f6; padding: 10px; border-radius: 10px;}
+    div[data-testid="stExpander"] div[role="button"] p {font-size: 1.1rem; font-weight: bold;}
+</style>
+""", unsafe_allow_html=True)
+
 # --- Helpers ---
 def get_headshot_url(player_id):
     return f"https://ak-static.cms.nba.com/wp-content/uploads/headshots/nba/latest/260x190/{int(player_id)}.png"
 
-def get_team_logo(team_abbr):
-    # Dictionary mapping abbr to ID (Partial list for demo, works for main teams)
-    # A cleaner way requires a full mapping, but we'll use a generic fallback or mapped IDs if possible.
-    # Trick: We can try to construct the URL if we had Team IDs. 
-    # Since we only have Abbr in the CSV, we'll use a placeholder or text for now, 
-    # OR we can update the data fetcher to get Team IDs later.
-    # For now, let's stick to a clean text representation with colors or a public logo API.
-    return f"https://assets.sportsdata.io/assets/nba/logos/{team_abbr}.png" # Public placeholder API
-
 # --- Data Loading ---
 @st.cache_data
 def load_data():
-    file_path = 'nba_data_live.csv' # Relative path for Cloud
+    file_path = 'nba_data_live.csv'
     if not os.path.exists(file_path):
         return None
     
@@ -35,174 +35,313 @@ def load_data():
     if 'GAME_DATE' in df.columns:
         df['GAME_DATE'] = pd.to_datetime(df['GAME_DATE'])
     
-    cols_to_numeric = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'MIN', 'GAME_SCORE', 'TS_PCT', 'PLAYER_ID']
+    # Ensure numeric columns
+    cols_to_numeric = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'MIN', 'GAME_SCORE', 'TS_PCT', 'PLAYER_ID', 'FGA', 'FTA', 'TOV', 'PF']
     for col in cols_to_numeric:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            
+    
+    # Create cleaner date string column for display
+    df['Date_Str'] = df['GAME_DATE'].dt.strftime('%Y-%m-%d')
+    
     return df
 
 df = load_data()
 
 # --- HEADER ---
-st.title("🏀 StatPulse Elite")
+c_logo, c_title = st.columns([1, 15])
+with c_logo:
+    st.write("🏀")
+with c_title:
+    st.title("StatPulse Pro: The Database")
+
 if df is None:
-    st.error("Waiting for data... (Github Action is running)")
+    st.error("Data missing! Please wait for the nightly update.")
     st.stop()
 
-# --- GLOBAL SETTINGS ---
-with st.sidebar:
-    st.header("⚙️ Data Settings")
-    if 'SEASON_ID' in df.columns:
-        all_seasons = sorted(df['SEASON_ID'].unique(), reverse=True)
-        selected_seasons = st.multiselect("Active Seasons", all_seasons, default=all_seasons)
-    else:
-        selected_seasons = []
-
-main_df = df.copy()
-if selected_seasons:
-    main_df = main_df[main_df['SEASON_ID'].isin(selected_seasons)]
-
-# --- TABS ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔎 Game Finder", "👤 Player Profile", "⚔️ Head-to-Head", "🔥 Streak Lab", "📜 Records"])
+# --- MAIN TABS ---
+tabs = st.tabs(["🔎 Game Finder", "👤 Player Reference", "⚔️ Versus Comparison", "🔥 Streak Lab", "🏆 Record Book"])
 
 # ==========================================
-# TAB 1: GAME FINDER (Classic)
+# TAB 1: GAME FINDER
 # ==========================================
-with tab1:
-    st.subheader("Game Finder")
-    c1, c2, c3, c4 = st.columns(4)
-    with c1: team_filter = st.multiselect("Team", sorted(main_df['TEAM_ABBREVIATION'].unique()))
-    with c2: min_pts = st.number_input("Min PTS", 0, 100, 30)
-    with c3: min_ast = st.number_input("Min AST", 0, 50, 0)
-    with c4: min_reb = st.number_input("Min REB", 0, 50, 0)
+with tabs[0]:
+    # --- Top Bar Filters ---
+    with st.container():
+        c1, c2, c3 = st.columns([1, 1, 2])
+        with c1:
+            all_seasons = sorted(df['SEASON_ID'].unique(), reverse=True) if 'SEASON_ID' in df.columns else []
+            sel_seasons = st.multiselect("Select Season(s)", all_seasons, default=all_seasons[:1], key="gf_season")
+        with c2:
+            teams = sorted(df['TEAM_ABBREVIATION'].unique())
+            sel_team = st.multiselect("Filter Team", teams, key="gf_team")
+        with c3:
+            opps = sorted(df['OPPONENT'].unique()) if 'OPPONENT' in df.columns else []
+            sel_opp = st.multiselect("Filter Opponent", opps, key="gf_opp")
 
-    res = main_df.copy()
-    if team_filter: res = res[res['TEAM_ABBREVIATION'].isin(team_filter)]
-    res = res[(res['PTS'] >= min_pts) & (res['AST'] >= min_ast) & (res['REB'] >= min_reb)]
+    # Filter Data
+    gf_df = df.copy()
+    if sel_seasons: gf_df = gf_df[gf_df['SEASON_ID'].isin(sel_seasons)]
+    if sel_team: gf_df = gf_df[gf_df['TEAM_ABBREVIATION'].isin(sel_team)]
+    if sel_opp: gf_df = gf_df[gf_df['OPPONENT'].isin(sel_opp)]
+
+    st.markdown("---")
     
+    # --- Stat Inputs ---
+    c_s1, c_s2, c_s3, c_s4 = st.columns(4)
+    with c_s1: min_pts = st.number_input("Min Points", 0, 100, 30)
+    with c_s2: min_ast = st.number_input("Min Assists", 0, 50, 0)
+    with c_s3: min_reb = st.number_input("Min Rebounds", 0, 50, 0)
+    with c_s4: min_gmsc = st.number_input("Min GameScore", 0.0, 100.0, 0.0)
+
+    # Apply Logic
+    res = gf_df[
+        (gf_df['PTS'] >= min_pts) & 
+        (gf_df['AST'] >= min_ast) & 
+        (gf_df['REB'] >= min_reb) & 
+        (gf_df['GAME_SCORE'] >= min_gmsc)
+    ]
+    
+    st.success(f"Found {len(res)} games.")
+    
+    # Display Table (Clean Dates)
+    cols_show = ['Date_Str', 'PLAYER_NAME', 'TEAM_ABBREVIATION', 'OPPONENT', 'WL', 'PTS', 'REB', 'AST', 'GAME_SCORE', 'TS_PCT']
     st.dataframe(
-        res[['GAME_DATE', 'PLAYER_NAME', 'TEAM_ABBREVIATION', 'OPPONENT', 'PTS', 'REB', 'AST', 'GAME_SCORE']].sort_values('PTS', ascending=False).head(50),
-        use_container_width=True, hide_index=True
+        res[cols_show].sort_values('PTS', ascending=False).head(100),
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Date_Str": st.column_config.TextColumn("Date"),
+            "TS_PCT": st.column_config.NumberColumn("TS%", format="%.1f%%"),
+            "GAME_SCORE": st.column_config.NumberColumn("GmSc", format="%.1f")
+        }
     )
 
 # ==========================================
-# TAB 2: PLAYER PROFILE (The Basketball-Reference Clone)
+# TAB 2: PLAYER REFERENCE (BBREF STYLE)
 # ==========================================
-with tab2:
-    all_players = sorted(main_df['PLAYER_NAME'].unique())
-    p_sel = st.selectbox("Search Player", all_players, index=0)
+with tabs[1]:
+    # Top Bar
+    all_players = sorted(df['PLAYER_NAME'].unique())
+    col_sel, col_season = st.columns([2, 2])
+    with col_sel:
+        p_sel = st.selectbox("Search Player", all_players, index=0)
+    with col_season:
+        p_seasons_avail = sorted(df[df['PLAYER_NAME'] == p_sel]['SEASON_ID'].unique(), reverse=True)
+        p_season = st.multiselect("Filter Season (Optional)", p_seasons_avail, default=p_seasons_avail)
+
+    # Filter
+    p_data = df[df['PLAYER_NAME'] == p_sel]
+    if p_season:
+        p_data = p_data[p_data['SEASON_ID'].isin(p_season)]
     
-    p_data = main_df[main_df['PLAYER_NAME'] == p_sel].sort_values('GAME_DATE', ascending=False)
+    p_data = p_data.sort_values('GAME_DATE', ascending=False)
     
     if not p_data.empty:
-        pid = p_data.iloc[0]['PLAYER_ID']
-        team = p_data.iloc[0]['TEAM_ABBREVIATION']
-        
-        # Header Section
-        col_head_img, col_head_info, col_head_stats = st.columns([1, 2, 3])
-        
-        with col_head_img:
-            st.image(get_headshot_url(pid))
-        
-        with col_head_info:
+        # --- BIO HEADER ---
+        c_img, c_bio, c_car = st.columns([1, 2, 3])
+        with c_img:
+            st.image(get_headshot_url(p_data.iloc[0]['PLAYER_ID']))
+        with c_bio:
             st.markdown(f"## {p_sel}")
-            st.markdown(f"**Team:** {team}")
-            st.markdown(f"**Games Tracked:** {len(p_data)}")
-        
-        with col_head_stats:
-            # Career (in loaded dataset) Averages
-            avg_pts = p_data['PTS'].mean()
-            avg_reb = p_data['REB'].mean()
-            avg_ast = p_data['AST'].mean()
-            best_gmsc = p_data['GAME_SCORE'].max()
+            st.markdown(f"**Team:** {p_data.iloc[0]['TEAM_ABBREVIATION']}")
+            st.markdown(f"**Position:** G/F (Est.)") # CSV doesn't have pos, static for now
+        with c_car:
+            # Career Totals (in DB)
+            games = len(p_data)
+            pts = p_data['PTS'].sum()
+            wins = len(p_data[p_data['WL']=='W'])
+            win_pct = (wins/games)*100 if games > 0 else 0
             
-            s1, s2, s3, s4 = st.columns(4)
-            s1.metric("AVG PTS", f"{avg_pts:.1f}")
-            s2.metric("AVG REB", f"{avg_reb:.1f}")
-            s3.metric("AVG AST", f"{avg_ast:.1f}")
-            s4.metric("Best GmSc", f"{best_gmsc}")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Games", games)
+            m2.metric("Total PTS", int(pts))
+            m3.metric("Win %", f"{win_pct:.1f}%")
 
         st.divider()
-        
-        # Split: Season Stats Table vs Last 5 Games
-        c_stats, c_log = st.columns([1, 1])
-        
-        with c_stats:
-            st.markdown("### 📊 Season Splits")
-            season_stats = p_data.groupby('SEASON_ID')[['PTS', 'REB', 'AST', 'TS_PCT', 'GAME_SCORE']].mean().sort_index(ascending=False)
-            st.dataframe(season_stats.style.format("{:.1f}"), use_container_width=True)
 
-        with c_log:
-            st.markdown("### 🗓️ Last 5 Games")
+        # --- STATS TABLES ---
+        t1, t2 = st.tabs(["Regular Stats", "Advanced Splits"])
+        
+        with t1:
+            st.markdown("### 📊 Per Game Stats (By Season)")
+            season_avg = p_data.groupby('SEASON_ID')[['PTS', 'REB', 'AST', 'STL', 'BLK', 'TOV', 'MIN', 'TS_PCT', 'GAME_SCORE']].mean()
+            st.dataframe(season_avg.style.format("{:.1f}"), use_container_width=True)
+            
+            st.markdown("### 🗓️ Recent Game Log")
             st.dataframe(
-                p_data[['GAME_DATE', 'OPPONENT', 'WL', 'PTS', 'REB', 'AST']].head(5),
+                p_data[['Date_Str', 'OPPONENT', 'WL', 'PTS', 'REB', 'AST', 'STL', 'BLK', 'TS_PCT']].head(10),
                 use_container_width=True, hide_index=True
             )
-            
-        # Graph
-        st.markdown("### 📈 Performance Trend")
-        st.line_chart(p_data.set_index('GAME_DATE')[['PTS', 'GAME_SCORE']].head(50))
+
+        with t2:
+            st.markdown("### 🏠 Home vs Away Splits")
+            split_loc = p_data.groupby('LOCATION')[['PTS', 'REB', 'AST', 'TS_PCT', 'WL']].mean()
+            st.dataframe(split_loc.style.format("{:.1f}"), use_container_width=True)
+
+            st.markdown("### ✅ Win vs Loss Splits")
+            split_wl = p_data.groupby('WL')[['PTS', 'REB', 'AST', 'TS_PCT']].mean()
+            st.dataframe(split_wl.style.format("{:.1f}"), use_container_width=True)
 
 # ==========================================
-# TAB 3: VERSUS
+# TAB 3: VERSUS COMPARISON (Expanded)
 # ==========================================
-with tab3:
-    c1, c2 = st.columns(2)
-    p1 = c1.selectbox("Player A", all_players, key="v1")
-    p2 = c2.selectbox("Player B", all_players, key="v2", index=1)
-    
-    d1 = main_df[main_df['PLAYER_NAME'] == p1]
-    d2 = main_df[main_df['PLAYER_NAME'] == p2]
+with tabs[2]:
+    c1, c2, c3 = st.columns([2, 1, 2])
+    with c1: 
+        p1 = st.selectbox("Player A", all_players, index=0, key="vs_1")
+    with c2:
+        # Choose seasons for comparison
+        vs_seasons = st.multiselect("Seasons", all_seasons, default=all_seasons[:1], key="vs_seas")
+    with c3: 
+        p2 = st.selectbox("Player B", all_players, index=1, key="vs_2")
+
+    # Filter
+    d1 = df[(df['PLAYER_NAME'] == p1) & (df['SEASON_ID'].isin(vs_seasons))]
+    d2 = df[(df['PLAYER_NAME'] == p2) & (df['SEASON_ID'].isin(vs_seasons))]
     
     if not d1.empty and not d2.empty:
-        c1.image(get_headshot_url(d1.iloc[0]['PLAYER_ID']), width=150)
-        c2.image(get_headshot_url(d2.iloc[0]['PLAYER_ID']), width=150)
+        # Images
+        ic1, ic2 = st.columns(2)
+        with ic1: st.image(get_headshot_url(d1.iloc[0]['PLAYER_ID']), width=150)
+        with ic2: st.image(get_headshot_url(d2.iloc[0]['PLAYER_ID']), width=150)
         
-        comp_df = pd.DataFrame({
-            'Metric': ['PTS', 'REB', 'AST', 'TS%'],
-            f'{p1}': [d1['PTS'].mean(), d1['REB'].mean(), d1['AST'].mean(), d1['TS_PCT'].mean()],
-            f'{p2}': [d2['PTS'].mean(), d2['REB'].mean(), d2['AST'].mean(), d2['TS_PCT'].mean()]
-        }).set_index('Metric')
+        st.divider()
+
+        # Detailed Comparison Table
+        def get_stats(d):
+            return {
+                'GP': len(d),
+                'PTS': d['PTS'].mean(),
+                'REB': d['REB'].mean(),
+                'AST': d['AST'].mean(),
+                'STL': d['STL'].mean(),
+                'BLK': d['BLK'].mean(),
+                'TOV': d['TOV'].mean(),
+                'TS%': d['TS_PCT'].mean(),
+                'GmSc': d['GAME_SCORE'].mean(),
+                'Win%': (len(d[d['WL']=='W']) / len(d)) * 100
+            }
         
-        st.table(comp_df.style.format("{:.1f}"))
+        s1 = get_stats(d1)
+        s2 = get_stats(d2)
+        
+        comp_data = {
+            'Metric': ['Games Played', 'Points (PTS)', 'Rebounds (REB)', 'Assists (AST)', 'Steals (STL)', 'Blocks (BLK)', 'Turnovers (TOV)', 'True Shooting (TS%)', 'Game Score', 'Win Percentage'],
+            f'{p1}': [s1['GP'], s1['PTS'], s1['REB'], s1['AST'], s1['STL'], s1['BLK'], s1['TOV'], s1['TS%'], s1['GmSc'], s1['Win%']],
+            f'{p2}': [s2['GP'], s2['PTS'], s2['REB'], s2['AST'], s2['STL'], s2['BLK'], s2['TOV'], s2['TS%'], s2['GmSc'], s2['Win%']]
+        }
+        
+        comp_df = pd.DataFrame(comp_data).set_index('Metric')
+        st.dataframe(comp_df.style.format("{:.1f}"), use_container_width=True, height=400)
 
 # ==========================================
-# TAB 4: STREAK LAB
+# TAB 4: STREAK LAB (New Logic)
 # ==========================================
-with tab4:
-    st.subheader("🔥 The Hot Hand")
-    stat = st.selectbox("Choose Stat", ["PTS", "AST", "REB"])
-    val = st.number_input(f"Value needed (e.g. 30+ {stat})", min_value=10, value=30)
+with tabs[3]:
+    st.subheader("🔥 Streak Lab: Consecutive Games")
     
-    # Simple logic: Count total games above threshold
-    leaders = main_df[main_df[stat] >= val]['PLAYER_NAME'].value_counts().head(10)
-    st.bar_chart(leaders)
+    # Controls
+    sc1, sc2, sc3, sc4 = st.columns(4)
+    with sc1: streak_stat = st.selectbox("Statistic", ["PTS", "AST", "REB", "STL", "BLK", "GAME_SCORE"])
+    with sc2: streak_val = st.number_input("Threshold (>=)", min_value=1, value=30)
+    with sc3: min_len = st.number_input("Min Streak Length", min_value=2, value=3)
+    with sc4: streak_mode = st.radio("Mode", ["All Time", "Active Streaks Only"])
+    
+    if st.button("🔎 Search Streaks"):
+        # Algorithm for streaks
+        # 1. Filter strictly needed columns + Sort
+        s_df = df[['PLAYER_NAME', 'GAME_DATE', 'Date_Str', 'WL', streak_stat, 'PTS', 'AST', 'REB']].sort_values(['PLAYER_NAME', 'GAME_DATE'])
+        
+        # 2. Identify games meeting criteria
+        s_df['is_hit'] = s_df[streak_stat] >= streak_val
+        
+        # 3. Create groups for consecutive hits
+        # Only consider rows where condition is met. 
+        # But we need to check if they are consecutive in the user's game log.
+        # Harder method: Groupby Player, calculate difference in rank.
+        
+        # Simpler method for MVP:
+        # Filter ONLY hits
+        hits = s_df[s_df['is_hit']].copy()
+        
+        # Add a "game number" rank per player
+        hits['game_rank'] = hits.groupby('PLAYER_NAME').cumcount()
+        
+        # To find consecutive games in the ORIGINAL schedule, we need to ensure no gaps.
+        # Actually, for "Streak of scoring 30+", it implies consecutive *games played*.
+        # So if I scored 30, missed a game (injury), and scored 30, it is usually considered a streak.
+        # But here let's assume strict consecutive games in the dataset.
+        
+        # Calculate 'group' identifier. 
+        # If games are consecutive in filtered list, their rank difference from original index should be constant? 
+        # No, easier: iterate or use sophisticated pandas.
+        
+        # Let's use the 'shift' method on the boolean mask in the original sorted df
+        s_df['grp'] = (s_df['is_hit'] != s_df['is_hit'].shift()).cumsum()
+        s_df = s_df[s_df['is_hit']] # Keep only hits
+        
+        # Aggregation
+        streaks = s_df.groupby(['PLAYER_NAME', 'grp']).agg(
+            Length=('GAME_DATE', 'count'),
+            Start_Date=('Date_Str', 'first'),
+            End_Date=('Date_Str', 'last'),
+            Avg_Stat=(streak_stat, 'mean'),
+            Wins=('WL', lambda x: (x=='W').sum()),
+            Last_Game_Date=('GAME_DATE', 'last')
+        ).reset_index()
+        
+        # Filter by min length
+        streaks = streaks[streaks['Length'] >= min_len]
+        
+        # Active Logic
+        if streak_mode == "Active Streaks Only":
+            # Active means the End_Date is the player's most recent game in the database
+            last_games = df.groupby('PLAYER_NAME')['GAME_DATE'].max().reset_index()
+            streaks = streaks.merge(last_games, on='PLAYER_NAME', suffixes=('', '_max'))
+            streaks = streaks[streaks['Last_Game_Date'] == streaks['GAME_DATE_max']]
+        
+        # Sort and Display
+        streaks = streaks.sort_values(['Length', 'Avg_Stat'], ascending=[False, False])
+        
+        st.markdown(f"### Results: {streak_val}+ {streak_stat}")
+        
+        display_cols = ['PLAYER_NAME', 'Length', 'Start_Date', 'End_Date', 'Avg_Stat', 'Wins']
+        st.dataframe(
+            streaks[display_cols],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Avg_Stat": st.column_config.NumberColumn(f"Avg {streak_stat}", format="%.1f"),
+                "Wins": st.column_config.NumberColumn("Wins in Streak")
+            }
+        )
 
 # ==========================================
-# TAB 5: RECORDS & HISTORY
+# TAB 5: RECORD BOOK (Lists)
 # ==========================================
-with tab5:
-    st.subheader("🏆 Records (In Loaded Data)")
+with tabs[4]:
+    st.subheader("🏆 League Records (Loaded Data)")
     
-    r1, r2, r3 = st.columns(3)
+    # Choose Season for records
+    rec_season = st.selectbox("Season", ["All Time"] + all_seasons)
+    rec_df = df if rec_season == "All Time" else df[df['SEASON_ID'] == rec_season]
     
-    with r1:
-        max_pts = main_df.loc[main_df['PTS'].idxmax()]
-        st.info(f"**Highest PTS**: {max_pts['PTS']} by {max_pts['PLAYER_NAME']}")
-        st.caption(f"vs {max_pts['OPPONENT']} on {max_pts['GAME_DATE'].date()}")
-        
-    with r2:
-        max_ast = main_df.loc[main_df['AST'].idxmax()]
-        st.success(f"**Highest AST**: {max_ast['AST']} by {max_ast['PLAYER_NAME']}")
+    col_pts, col_ast, col_reb = st.columns(3)
     
-    with r3:
-        max_gmsc = main_df.loc[main_df['GAME_SCORE'].idxmax()]
-        st.warning(f"**Best GameScore**: {max_gmsc['GAME_SCORE']} by {max_gmsc['PLAYER_NAME']}")
+    def show_leaderboard(title, col_name, emoji):
+        st.markdown(f"#### {emoji} {title}")
+        leaders = rec_df.nlargest(10, col_name)[['Date_Str', 'PLAYER_NAME', 'OPPONENT', col_name]]
+        st.dataframe(leaders, use_container_width=True, hide_index=True)
+
+    with col_pts: show_leaderboard("Points", "PTS", "🏀")
+    with col_ast: show_leaderboard("Assists", "AST", "🅰️")
+    with col_reb: show_leaderboard("Rebounds", "REB", "💪")
     
-    st.markdown("---")
-    st.markdown("### Top 20 Performances of All Time (Loaded)")
-    st.dataframe(
-        main_df.nlargest(20, 'GAME_SCORE')[['GAME_DATE', 'PLAYER_NAME', 'PTS', 'REB', 'AST', 'GAME_SCORE', 'TS_PCT']],
-        use_container_width=True, hide_index=True
-    )
+    st.divider()
+    
+    col_gmsc, col_3pm = st.columns(2)
+    with col_gmsc: show_leaderboard("GameScore", "GAME_SCORE", "🔥")
+    # Note: 3PM not explicitly in numeric conversion, ensuring fallback
+    if 'FG3M' in rec_df.columns:
+         with col_3pm: show_leaderboard("3-Pointers Made", "FG3M", "👌")
