@@ -1,0 +1,35 @@
+name: Daily NBA Data Update
+
+on:
+  schedule:
+    # ירוץ כל יום ב-10:00 בבוקר שעון לונדון (שזה בערך 12:00-13:00 בישראל)
+    - cron: '0 10 * * *'
+  workflow_dispatch: # מאפשר להריץ ידנית בלחיצת כפתור לבדיקה
+
+permissions:
+  contents: write # נותן לרובוט רשות לשמור את הקובץ המעודכן
+
+jobs:
+  update-nba-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Data Update Script
+        run: python update_data.py
+
+      - name: Commit and Push updated data
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: Daily Data Refresh 🏀
+          file_pattern: nba_data_live.csv
