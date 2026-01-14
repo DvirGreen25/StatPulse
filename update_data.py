@@ -4,9 +4,7 @@ import time
 import os
 
 # הגדרות
-folder_path = r'C:\StatPulse'
-filename = 'nba_data_live.csv'
-full_path = os.path.join(folder_path, filename)
+full_path = 'nba_data_live.csv'
 
 start_year = 2020 
 end_year = 2025 # עדכני לעונה הנוכחית
@@ -66,4 +64,5 @@ if all_data:
     print(f"SUCCESS! Database V3.0 Ready. Rows: {len(df)}")
 
 else:
+
     print("No data found.")
