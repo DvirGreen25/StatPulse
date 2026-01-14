@@ -247,7 +247,7 @@ with tabs[2]:
         st.dataframe(comp_df.style.format("{:.1f}"), use_container_width=True, height=400)
 
 # ==========================================
-# TAB 4: STREAK LAB (Fix: Added .copy())
+# TAB 4: STREAK LAB (Fix: Unique Columns)
 # ==========================================
 with tabs[3]:
     st.subheader("🔥 Streak Lab: Consecutive Games")
@@ -260,8 +260,15 @@ with tabs[3]:
     with sc4: streak_mode = st.radio("Mode", ["All Time", "Active Streaks Only"])
     
     if st.button("🔎 Search Streaks"):
-        # Fix: Added .copy() to prevent SettingWithCopyError
-        s_df = df[['PLAYER_NAME', 'GAME_DATE', 'Date_Str', 'WL', streak_stat, 'PTS', 'AST', 'REB']].sort_values(['PLAYER_NAME', 'GAME_DATE']).copy()
+        # TIKUN: Avoid duplicate columns if streak_stat is 'PTS', 'AST' or 'REB'
+        target_cols = ['PLAYER_NAME', 'GAME_DATE', 'Date_Str', 'WL', streak_stat]
+        # Add context columns only if they are not already the target stat
+        if 'PTS' not in target_cols: target_cols.append('PTS')
+        if 'AST' not in target_cols: target_cols.append('AST')
+        if 'REB' not in target_cols: target_cols.append('REB')
+
+        # Select unique columns and copy
+        s_df = df[target_cols].sort_values(['PLAYER_NAME', 'GAME_DATE']).copy()
         
         # Identify games meeting criteria
         s_df['is_hit'] = s_df[streak_stat] >= streak_val
