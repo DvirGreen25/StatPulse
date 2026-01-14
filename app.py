@@ -131,7 +131,7 @@ with tabs[1]:
         p_season = st.multiselect("Filter Season (Optional)", p_seasons_avail, default=p_seasons_avail)
 
     # Filter
-    p_data = df[df['PLAYER_NAME'] == p_sel]
+    p_data = df[df['PLAYER_NAME'] == p_sel].copy() # TIKUN: Added .copy() to avoid warnings
     if p_season:
         p_data = p_data[p_data['SEASON_ID'].isin(p_season)]
     
@@ -145,7 +145,7 @@ with tabs[1]:
         with c_bio:
             st.markdown(f"## {p_sel}")
             st.markdown(f"**Team:** {p_data.iloc[0]['TEAM_ABBREVIATION']}")
-            st.markdown(f"**Position:** G/F (Est.)") # CSV doesn't have pos, static for now
+            st.markdown(f"**Position:** G/F (Est.)") 
         with c_car:
             # Career Totals (in DB)
             games = len(p_data)
@@ -165,7 +165,9 @@ with tabs[1]:
         
         with t1:
             st.markdown("### 📊 Per Game Stats (By Season)")
-            season_avg = p_data.groupby('SEASON_ID')[['PTS', 'REB', 'AST', 'STL', 'BLK', 'TOV', 'MIN', 'TS_PCT', 'GAME_SCORE']].mean()
+            # Exclude non-numeric columns explicitly for mean calculation
+            numeric_cols = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TOV', 'MIN', 'TS_PCT', 'GAME_SCORE']
+            season_avg = p_data.groupby('SEASON_ID')[numeric_cols].mean()
             st.dataframe(season_avg.style.format("{:.1f}"), use_container_width=True)
             
             st.markdown("### 🗓️ Recent Game Log")
@@ -175,11 +177,20 @@ with tabs[1]:
             )
 
         with t2:
+            # TIKUN: Create a numeric Win column (1 for W, 0 for L) specifically for averaging
+            p_data['WIN_VAL'] = p_data['WL'].apply(lambda x: 1 if x == 'W' else 0)
+
             st.markdown("### 🏠 Home vs Away Splits")
-            split_loc = p_data.groupby('LOCATION')[['PTS', 'REB', 'AST', 'TS_PCT', 'WL']].mean()
+            # Now we use WIN_VAL instead of WL for the average
+            split_loc = p_data.groupby('LOCATION')[['PTS', 'REB', 'AST', 'TS_PCT', 'WIN_VAL']].mean()
+            # Rename WIN_VAL to Win% and multiply by 100 for display
+            split_loc['Win%'] = split_loc['WIN_VAL'] * 100
+            split_loc = split_loc.drop(columns=['WIN_VAL'])
+            
             st.dataframe(split_loc.style.format("{:.1f}"), use_container_width=True)
 
             st.markdown("### ✅ Win vs Loss Splits")
+            # For this split, we group BY 'WL', so we don't need to average it (it's the index)
             split_wl = p_data.groupby('WL')[['PTS', 'REB', 'AST', 'TS_PCT']].mean()
             st.dataframe(split_wl.style.format("{:.1f}"), use_container_width=True)
 
@@ -250,32 +261,13 @@ with tabs[3]:
     
     if st.button("🔎 Search Streaks"):
         # Algorithm for streaks
-        # 1. Filter strictly needed columns + Sort
         s_df = df[['PLAYER_NAME', 'GAME_DATE', 'Date_Str', 'WL', streak_stat, 'PTS', 'AST', 'REB']].sort_values(['PLAYER_NAME', 'GAME_DATE'])
         
-        # 2. Identify games meeting criteria
+        # Identify games meeting criteria
         s_df['is_hit'] = s_df[streak_stat] >= streak_val
         
-        # 3. Create groups for consecutive hits
-        # Only consider rows where condition is met. 
-        # But we need to check if they are consecutive in the user's game log.
-        # Harder method: Groupby Player, calculate difference in rank.
-        
-        # Simpler method for MVP:
-        # Filter ONLY hits
+        # Create groups for consecutive hits
         hits = s_df[s_df['is_hit']].copy()
-        
-        # Add a "game number" rank per player
-        hits['game_rank'] = hits.groupby('PLAYER_NAME').cumcount()
-        
-        # To find consecutive games in the ORIGINAL schedule, we need to ensure no gaps.
-        # Actually, for "Streak of scoring 30+", it implies consecutive *games played*.
-        # So if I scored 30, missed a game (injury), and scored 30, it is usually considered a streak.
-        # But here let's assume strict consecutive games in the dataset.
-        
-        # Calculate 'group' identifier. 
-        # If games are consecutive in filtered list, their rank difference from original index should be constant? 
-        # No, easier: iterate or use sophisticated pandas.
         
         # Let's use the 'shift' method on the boolean mask in the original sorted df
         s_df['grp'] = (s_df['is_hit'] != s_df['is_hit'].shift()).cumsum()
@@ -296,7 +288,6 @@ with tabs[3]:
         
         # Active Logic
         if streak_mode == "Active Streaks Only":
-            # Active means the End_Date is the player's most recent game in the database
             last_games = df.groupby('PLAYER_NAME')['GAME_DATE'].max().reset_index()
             streaks = streaks.merge(last_games, on='PLAYER_NAME', suffixes=('', '_max'))
             streaks = streaks[streaks['Last_Game_Date'] == streaks['GAME_DATE_max']]
