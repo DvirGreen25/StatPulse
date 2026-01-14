@@ -32,6 +32,10 @@ def load_data():
     
     df = pd.read_csv(file_path)
     
+    # --- TIKUN CRITICAL: Remove Duplicate Columns Globally ---
+    # This prevents the ValueError where pandas sees two 'PTS' columns and crashes
+    df = df.loc[:, ~df.columns.duplicated()]
+
     if 'GAME_DATE' in df.columns:
         df['GAME_DATE'] = pd.to_datetime(df['GAME_DATE'])
     
@@ -106,6 +110,9 @@ with tabs[0]:
     
     # Display Table (Clean Dates)
     cols_show = ['Date_Str', 'PLAYER_NAME', 'TEAM_ABBREVIATION', 'OPPONENT', 'WL', 'PTS', 'REB', 'AST', 'GAME_SCORE', 'TS_PCT']
+    # Safety check for columns existing before showing
+    cols_show = [c for c in cols_show if c in res.columns]
+    
     st.dataframe(
         res[cols_show].sort_values('PTS', ascending=False).head(100),
         use_container_width=True,
@@ -247,7 +254,7 @@ with tabs[2]:
         st.dataframe(comp_df.style.format("{:.1f}"), use_container_width=True, height=400)
 
 # ==========================================
-# TAB 4: STREAK LAB (Fix: Unique Columns)
+# TAB 4: STREAK LAB (Fix: Deduplicate + Safe Select)
 # ==========================================
 with tabs[3]:
     st.subheader("🔥 Streak Lab: Consecutive Games")
@@ -260,17 +267,15 @@ with tabs[3]:
     with sc4: streak_mode = st.radio("Mode", ["All Time", "Active Streaks Only"])
     
     if st.button("🔎 Search Streaks"):
-        # TIKUN: Avoid duplicate columns if streak_stat is 'PTS', 'AST' or 'REB'
-        target_cols = ['PLAYER_NAME', 'GAME_DATE', 'Date_Str', 'WL', streak_stat]
-        # Add context columns only if they are not already the target stat
-        if 'PTS' not in target_cols: target_cols.append('PTS')
-        if 'AST' not in target_cols: target_cols.append('AST')
-        if 'REB' not in target_cols: target_cols.append('REB')
-
-        # Select unique columns and copy
-        s_df = df[target_cols].sort_values(['PLAYER_NAME', 'GAME_DATE']).copy()
+        # TIKUN: Build unique list of columns to avoid ambiguity
+        base_cols = ['PLAYER_NAME', 'GAME_DATE', 'Date_Str', 'WL']
+        # Use set to avoid duplicates, then convert to list
+        needed_cols = list(set(base_cols + [streak_stat, 'PTS', 'AST', 'REB']))
         
-        # Identify games meeting criteria
+        # Safe selection and copy
+        s_df = df[needed_cols].sort_values(['PLAYER_NAME', 'GAME_DATE']).copy()
+        
+        # Identify games meeting criteria (Now safe from duplicates)
         s_df['is_hit'] = s_df[streak_stat] >= streak_val
         
         # Create groups for consecutive hits
