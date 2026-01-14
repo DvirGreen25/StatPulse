@@ -17,7 +17,7 @@ def get_headshot_url(player_id):
 # --- Data Loading ---
 @st.cache_data
 def load_data():
-    file_path = r'C:\StatPulse\nba_data_live.csv'
+    file_path = 'nba_data_live.csv'
     if not os.path.exists(file_path):
         return None
     
@@ -227,4 +227,5 @@ with tab4:
         # Visualizing the Top Player
         if not counts.empty:
             top_player = counts.iloc[0]['Player']
+
             st.success(f"🏆 Leader: {top_player} with {counts.iloc[0]['Games Count']} games!")
