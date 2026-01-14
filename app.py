@@ -24,16 +24,17 @@ def get_headshot_url(player_id):
     return f"https://ak-static.cms.nba.com/wp-content/uploads/headshots/nba/latest/260x190/{int(player_id)}.png"
 
 # --- Data Loading ---
-@st.cache_data
-def load_data():
+# TIKUN: Added ttl to force refresh every hour, helps clear bad cache
+@st.cache_data(ttl=3600)
+def load_data_v5():
     file_path = 'nba_data_live.csv'
     if not os.path.exists(file_path):
         return None
     
     df = pd.read_csv(file_path)
     
-    # --- TIKUN CRITICAL: Remove Duplicate Columns Globally ---
-    # This prevents the ValueError where pandas sees two 'PTS' columns and crashes
+    # --- GLOBAL DEDUPLICATION ---
+    # Force remove duplicate columns immediately upon load
     df = df.loc[:, ~df.columns.duplicated()]
 
     if 'GAME_DATE' in df.columns:
@@ -50,7 +51,7 @@ def load_data():
     
     return df
 
-df = load_data()
+df = load_data_v5()
 
 # --- HEADER ---
 c_logo, c_title = st.columns([1, 15])
@@ -188,16 +189,12 @@ with tabs[1]:
             p_data['WIN_VAL'] = p_data['WL'].apply(lambda x: 1 if x == 'W' else 0)
 
             st.markdown("### 🏠 Home vs Away Splits")
-            # Now we use WIN_VAL instead of WL for the average
             split_loc = p_data.groupby('LOCATION')[['PTS', 'REB', 'AST', 'TS_PCT', 'WIN_VAL']].mean()
-            # Rename WIN_VAL to Win% and multiply by 100 for display
             split_loc['Win%'] = split_loc['WIN_VAL'] * 100
             split_loc = split_loc.drop(columns=['WIN_VAL'])
-            
             st.dataframe(split_loc.style.format("{:.1f}"), use_container_width=True)
 
             st.markdown("### ✅ Win vs Loss Splits")
-            # For this split, we group BY 'WL', so we don't need to average it (it's the index)
             split_wl = p_data.groupby('WL')[['PTS', 'REB', 'AST', 'TS_PCT']].mean()
             st.dataframe(split_wl.style.format("{:.1f}"), use_container_width=True)
 
@@ -254,7 +251,7 @@ with tabs[2]:
         st.dataframe(comp_df.style.format("{:.1f}"), use_container_width=True, height=400)
 
 # ==========================================
-# TAB 4: STREAK LAB (Fix: Deduplicate + Safe Select)
+# TAB 4: STREAK LAB (Paranoid Mode Fix)
 # ==========================================
 with tabs[3]:
     st.subheader("🔥 Streak Lab: Consecutive Games")
@@ -267,15 +264,23 @@ with tabs[3]:
     with sc4: streak_mode = st.radio("Mode", ["All Time", "Active Streaks Only"])
     
     if st.button("🔎 Search Streaks"):
-        # TIKUN: Build unique list of columns to avoid ambiguity
-        base_cols = ['PLAYER_NAME', 'GAME_DATE', 'Date_Str', 'WL']
-        # Use set to avoid duplicates, then convert to list
-        needed_cols = list(set(base_cols + [streak_stat, 'PTS', 'AST', 'REB']))
+        # TIKUN: Explicitly select unique columns and drop duplicates locally
+        needed_cols = ['PLAYER_NAME', 'GAME_DATE', 'Date_Str', 'WL', streak_stat]
+        for extra in ['PTS', 'AST', 'REB']:
+            if extra not in needed_cols:
+                needed_cols.append(extra)
         
-        # Safe selection and copy
-        s_df = df[needed_cols].sort_values(['PLAYER_NAME', 'GAME_DATE']).copy()
+        # Verify columns exist
+        valid_cols = [c for c in needed_cols if c in df.columns]
         
-        # Identify games meeting criteria (Now safe from duplicates)
+        s_df = df[valid_cols].copy()
+        # PARANOID MODE: Drop duplicates again locally to be 100% sure
+        s_df = s_df.loc[:, ~s_df.columns.duplicated()]
+        
+        # Sort
+        s_df = s_df.sort_values(['PLAYER_NAME', 'GAME_DATE'])
+        
+        # Identify games meeting criteria (Now safe)
         s_df['is_hit'] = s_df[streak_stat] >= streak_val
         
         # Create groups for consecutive hits
