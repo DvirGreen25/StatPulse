@@ -131,7 +131,7 @@ with tabs[1]:
         p_season = st.multiselect("Filter Season (Optional)", p_seasons_avail, default=p_seasons_avail)
 
     # Filter
-    p_data = df[df['PLAYER_NAME'] == p_sel].copy() # TIKUN: Added .copy() to avoid warnings
+    p_data = df[df['PLAYER_NAME'] == p_sel].copy()
     if p_season:
         p_data = p_data[p_data['SEASON_ID'].isin(p_season)]
     
@@ -177,7 +177,7 @@ with tabs[1]:
             )
 
         with t2:
-            # TIKUN: Create a numeric Win column (1 for W, 0 for L) specifically for averaging
+            # Create a numeric Win column (1 for W, 0 for L) specifically for averaging
             p_data['WIN_VAL'] = p_data['WL'].apply(lambda x: 1 if x == 'W' else 0)
 
             st.markdown("### 🏠 Home vs Away Splits")
@@ -247,7 +247,7 @@ with tabs[2]:
         st.dataframe(comp_df.style.format("{:.1f}"), use_container_width=True, height=400)
 
 # ==========================================
-# TAB 4: STREAK LAB (New Logic)
+# TAB 4: STREAK LAB (Fix: Added .copy())
 # ==========================================
 with tabs[3]:
     st.subheader("🔥 Streak Lab: Consecutive Games")
@@ -260,8 +260,8 @@ with tabs[3]:
     with sc4: streak_mode = st.radio("Mode", ["All Time", "Active Streaks Only"])
     
     if st.button("🔎 Search Streaks"):
-        # Algorithm for streaks
-        s_df = df[['PLAYER_NAME', 'GAME_DATE', 'Date_Str', 'WL', streak_stat, 'PTS', 'AST', 'REB']].sort_values(['PLAYER_NAME', 'GAME_DATE'])
+        # Fix: Added .copy() to prevent SettingWithCopyError
+        s_df = df[['PLAYER_NAME', 'GAME_DATE', 'Date_Str', 'WL', streak_stat, 'PTS', 'AST', 'REB']].sort_values(['PLAYER_NAME', 'GAME_DATE']).copy()
         
         # Identify games meeting criteria
         s_df['is_hit'] = s_df[streak_stat] >= streak_val
@@ -269,7 +269,7 @@ with tabs[3]:
         # Create groups for consecutive hits
         hits = s_df[s_df['is_hit']].copy()
         
-        # Let's use the 'shift' method on the boolean mask in the original sorted df
+        # 'Shift' logic to find consecutive groups
         s_df['grp'] = (s_df['is_hit'] != s_df['is_hit'].shift()).cumsum()
         s_df = s_df[s_df['is_hit']] # Keep only hits
         
