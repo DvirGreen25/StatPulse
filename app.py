@@ -27,35 +27,47 @@ def get_headshot_url(player_id):
 # --- NEW DATA ENGINE (הלב החדש של המערכת) ---
 @st.cache_data(ttl=3600)
 def load_data_pro():
-    # 1. טעינת ההיסטוריה (הקובץ הגדול)
+    # 1. הגדרת העמודות שאנחנו חייבים (חוסך זיכרון + מונע טעויות)
+    required_cols = [
+        'SEASON_ID', 'PLAYER_ID', 'PLAYER_NAME', 'TEAM_ABBREVIATION', 
+        'GAME_DATE', 'MATCHUP', 'WL', 'PTS', 'REB', 'AST', 
+        'STL', 'BLK', 'TOV', 'GAME_SCORE', 'FGA', 'FTA', 'MIN'
+    ]
+
+    # פונקציית עזר לטעינה בטוחה
+    def safe_read(file_path):
+        try:
+            # טוען רק עמודות שקיימות בקובץ מתוך הרשימה שלנו
+            return pd.read_csv(file_path, usecols=lambda c: c in required_cols)
+        except Exception as e:
+            st.error(f"Error loading {file_path}: {e}")
+            return pd.DataFrame()
+
+    # 2. טעינת הקבצים
     history_df = pd.DataFrame()
     if os.path.exists('nba_history.csv.zip'):
-        try:
-            history_df = pd.read_csv('nba_history.csv.zip')
-        except:
-            pass # אם אין היסטוריה, נמשיך הלאה
+        history_df = safe_read('nba_history.csv.zip')
 
-    # 2. טעינת הלייב (העדכון היומי)
     live_df = pd.DataFrame()
     if os.path.exists('nba_current.csv'):
-        try:
-            live_df = pd.read_csv('nba_current.csv')
-        except:
-            pass
+        live_df = safe_read('nba_current.csv')
 
-    # 3. איחוד (Fusion)
+    # 3. איחוד
     if not history_df.empty and not live_df.empty:
-        # מוודאים שיש עמודות משותפות
-        common = list(set(history_df.columns) & set(live_df.columns))
-        df = pd.concat([history_df[common], live_df[common]], ignore_index=True)
+        df = pd.concat([history_df, live_df], ignore_index=True)
     elif not history_df.empty:
         df = history_df
     elif not live_df.empty:
         df = live_df
     else:
-        return None # אין נתונים בכלל
+        return None
 
-    # 4. ניקוי וסידור (כמו בקוד המקורי שלך)
+    # 4. ניקוי והשלמת עמודות חסרות (התיקון הקריטי!) 🛠️
+    # אם עמודה כמו GAME_SCORE חסרה בגלל שהיא לא הייתה בהיסטוריה הישנה - נוסיף אותה כאפס
+    for col in required_cols:
+        if col not in df.columns:
+            df[col] = 0.0
+
     # הסרת כפילויות
     df = df.loc[:, ~df.columns.duplicated()]
 
@@ -64,11 +76,10 @@ def load_data_pro():
         df['GAME_DATE'] = pd.to_datetime(df['GAME_DATE'])
         df['Date_Str'] = df['GAME_DATE'].dt.strftime('%Y-%m-%d')
     
-    # המרת מספרים
-    cols_to_numeric = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'MIN', 'GAME_SCORE', 'TS_PCT', 'PLAYER_ID', 'FGA', 'FTA', 'TOV', 'PF']
-    for col in cols_to_numeric:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    # המרה למספרים (כדי שהסינונים יעבדו)
+    numeric_cols = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'GAME_SCORE', 'MIN']
+    for col in numeric_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
             
     return df
 
@@ -313,3 +324,4 @@ with tabs[4]:
     with col_pts: show_leaderboard("Points", "PTS", "🏀")
     with col_ast: show_leaderboard("Assists", "AST", "🅰️")
     with col_reb: show_leaderboard("Rebounds", "REB", "💪")
+
