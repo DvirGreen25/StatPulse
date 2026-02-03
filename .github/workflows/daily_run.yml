@@ -1,0 +1,42 @@
+name: NBA Daily Update
+
+# מתי להריץ?
+on:
+  schedule:
+    # ריצה כל יום בשעה 08:00 UTC (שזה 10:00 או 11:00 בבוקר בישראל - אחרי שכל המשחקים נגמרו)
+    - cron: '0 8 * * *'
+  workflow_dispatch: # מאפשר לך גם להריץ ידנית בלחיצת כפתור אם בא לך לבדוק
+
+permissions:
+  contents: write # נותן לרובוט אישור לשמור את הקובץ המעודכן בגיטאהב
+
+jobs:
+  update-nba-stats:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. הורדת הקוד שלך למכונה של גיטאהב
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. התקנת פייתון
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      # 3. התקנת הספריות הדרושות
+      - name: Install dependencies
+        run: |
+          pip install pandas nba_api
+
+      # 4. הרצת הסקריפט שיצרנו
+      - name: Run Update Script
+        run: python update_data.py
+
+      # 5. שמירת הקובץ החדש (nba_current.csv) חזרה לגיטאהב
+      - name: Commit and Push changes
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "🏀 Daily Stats Update"
+          file_pattern: "nba_current.csv"
